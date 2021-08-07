@@ -136,7 +136,7 @@ class PSMNetBasicAggregation(nn.Module):
         cost0 = self.dres4(cost0) + cost0
 
         cost = self.classify(cost0)  # [B, 1, 48, H/4, W/4]
-        cost = F.interpolate(cost, scale_factor=4, mode='trilinear')
+        cost = F.interpolate(cost, scale_factor=4, mode='trilinear',align_corners=True)
 
         cost = torch.squeeze(cost, 1)  # [B, 192, H, W]
 
@@ -242,12 +242,12 @@ class PSMNetHGAggregation(nn.Module):
         cost2 = self.classif2(out2) + cost1
         cost3 = self.classif3(out3) + cost2
 
-        cost3 = F.interpolate(cost3, scale_factor=4, mode='trilinear')
+        cost3 = F.interpolate(cost3, scale_factor=4, mode='trilinear',align_corners=True)
         cost3 = torch.squeeze(cost3, 1)
 
         if self.training:
-            cost1 = F.interpolate(cost1, scale_factor=4, mode='trilinear')
-            cost2 = F.interpolate(cost2, scale_factor=4, mode='trilinear')
+            cost1 = F.interpolate(cost1, scale_factor=4, mode='trilinear',align_corners=True)
+            cost2 = F.interpolate(cost2, scale_factor=4, mode='trilinear',align_corners=True)
 
             cost1 = torch.squeeze(cost1, 1)
             cost2 = torch.squeeze(cost2, 1)

@@ -65,7 +65,7 @@ class Model(object):
             if not mask.any():
                 continue
 
-            pred_disp_pyramid = self.aanet(left, right)  # list of H/12, H/6, H/3, H/2, H
+            pred_disp_pyramid = self.aanet(left, right,None)  # list of H/12, H/6, H/3, H/2, H
 
             if args.highest_loss_only:
                 pred_disp_pyramid = [pred_disp_pyramid[-1]]  # only the last highest resolution output
@@ -247,7 +247,7 @@ class Model(object):
             num_imgs += gt_disp.size(0)
 
             with torch.no_grad():
-                pred_disp = self.aanet(left, right)[-1]  # [B, H, W]
+                pred_disp = self.aanet(left, right,None)[-1]  # [B, H, W]
 
             if pred_disp.size(-1) < gt_disp.size(-1):
                 pred_disp = pred_disp.unsqueeze(1)  # [B, 1, H, W]

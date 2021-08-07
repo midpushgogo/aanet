@@ -6,6 +6,29 @@ from nets.feature import BasicBlock, BasicConv, Conv2x
 from nets.deform import DeformConv2d
 from nets.warp import disp_warp
 
+class SA_Module(nn.Module):
+    """
+    Note: simple but effective spatial attention module.
+    """
+
+    def __init__(self, input_nc, output_nc=1, ndf=16):
+        super(SA_Module, self).__init__()
+        self.attention_value = nn.Sequential(
+            nn.Conv2d(input_nc, ndf, kernel_size=1, stride=1, padding=0, bias=False),
+            nn.BatchNorm2d(ndf),
+            nn.ReLU(True),
+            nn.Conv2d(ndf, ndf, kernel_size=3, stride=1, padding=1, bias=False),
+            nn.BatchNorm2d(ndf),
+            nn.ReLU(True),
+            nn.Conv2d(ndf, output_nc, kernel_size=1, stride=1, padding=0, bias=False),
+            nn.Sigmoid()
+        )
+
+    def forward(self, x):
+        attention_value = self.attention_value(x)
+
+        return attention_value
+
 
 def conv2d(in_channels, out_channels, kernel_size=3, stride=1, dilation=1, groups=1):
     return nn.Sequential(nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size,
@@ -16,12 +39,13 @@ def conv2d(in_channels, out_channels, kernel_size=3, stride=1, dilation=1, group
 
 
 class StereoNetRefinement(nn.Module):
-    def __init__(self):
+    def __init__(self,attention):
         super(StereoNetRefinement, self).__init__()
 
         # Original StereoNet: left, disp
         self.conv = conv2d(4, 32)
-
+        self.attention=attention
+        self.attentionnet = SA_Module(input_nc=10)
         self.dilation_list = [1, 2, 4, 8, 1, 1]
         self.dilated_blocks = nn.ModuleList()
 
@@ -46,8 +70,16 @@ class StereoNetRefinement(nn.Module):
         disp = F.interpolate(low_disp, size=left_img.size()[-2:], mode='bilinear', align_corners=False)
         disp = disp * scale_factor  # scale correspondingly
 
-        concat = torch.cat((disp, left_img), dim=1)  # [B, 4, H, W]
-        out = self.conv(concat)
+        if self.attention:
+            warped_right = disp_warp(right_img, disp)[0]  # [B, C, H, W]
+            error = warped_right - left_img  # [B, C, H, W]
+            query = torch.cat((left_img, right_img, error, disp), dim=1)
+            attention_map=self.attentionnet(query)
+            concat = torch.cat((disp, left_img), dim=1)  # [B, 4, H, W]
+            out = self.conv(concat*attention_map)
+        else:
+            concat = torch.cat((disp, left_img), dim=1)  # [B, 4, H, W]
+            out = self.conv(concat)
         out = self.dilated_blocks(out)
         residual_disp = self.final_conv(out)
 
@@ -58,15 +90,15 @@ class StereoNetRefinement(nn.Module):
 
 
 class StereoDRNetRefinement(nn.Module):
-    def __init__(self):
+    def __init__(self,attention):
         super(StereoDRNetRefinement, self).__init__()
 
         # Left and warped error
         in_channels = 6
-
+        self.attention=attention
         self.conv1 = conv2d(in_channels, 16)
         self.conv2 = conv2d(1, 16)  # on low disparity
-
+        self.attentionnet = SA_Module(input_nc=10)
         self.dilation_list = [1, 2, 4, 8, 1, 1]
         self.dilated_blocks = nn.ModuleList()
 
@@ -91,9 +123,15 @@ class StereoDRNetRefinement(nn.Module):
         warped_right = disp_warp(right_img, disp)[0]  # [B, C, H, W]
         error = warped_right - left_img  # [B, C, H, W]
 
-        concat1 = torch.cat((error, left_img), dim=1)  # [B, 6, H, W]
+        if self.attention:
+            query = torch.cat((left_img, right_img, error, disp), dim=1)
+            attention_map=self.attentionnet(query)
+            concat = torch.cat((error, left_img), dim=1)  # [B, 4, H, W]
+            conv1 = self.conv1(concat*attention_map)
+        else:
+            concat = torch.cat((error, left_img), dim=1)  # [B, 4, H, W]
+            conv1 = self.conv1(concat)
 
-        conv1 = self.conv1(concat1)  # [B, 16, H, W]
         conv2 = self.conv2(disp)  # [B, 16, H, W]
         concat2 = torch.cat((conv1, conv2), dim=1)  # [B, 32, H, W]
 

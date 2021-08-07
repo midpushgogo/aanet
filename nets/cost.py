@@ -15,7 +15,14 @@ class CostVolume(nn.Module):
 
         self.max_disp = max_disp
         self.feature_similarity = feature_similarity
-
+        if self.feature_similarity == 'combind_volume':
+            self.conv3d= nn.Sequential(
+                nn.Conv3d(128, 32, 3, 1, 1),
+                nn.ReLU(True),
+                nn.Conv3d(32, 32, 3, 1, 1),
+                nn.ReLU(True),
+                nn.Conv3d(32, 1, kernel_size=3, stride=1, padding=1, bias=False))
+            self.conv3d=self.conv3d.cuda()
     def forward(self, left_feature, right_feature):
         b, c, h, w = left_feature.size()
 
@@ -39,7 +46,6 @@ class CostVolume(nn.Module):
 
         elif self.feature_similarity == 'correlation':
             cost_volume = left_feature.new_zeros(b, self.max_disp, h, w)
-
             for i in range(self.max_disp):
                 if i > 0:
                     cost_volume[:, i, :, i:] = (left_feature[:, :, :, i:] *
@@ -47,10 +53,28 @@ class CostVolume(nn.Module):
                 else:
                     cost_volume[:, i, :, :] = (left_feature * right_feature).mean(dim=1)
 
+        elif self.feature_similarity == 'combind_volume':
+            cost_volume_correlation = left_feature.new_zeros(b, self.max_disp, h, w)
+            cost_volume_diff = left_feature.new_zeros(b, c, self.max_disp, h, w)
+            for i in range(self.max_disp):
+                if i > 0:
+                    cost_volume_correlation[:, i, :, i:] = (left_feature[:, :, :, i:] *
+                                                right_feature[:, :, :, :-i]).mean(dim=1)
+                    cost_volume_diff[:, :, i, :, i:] = left_feature[:, :, :, i:] - right_feature[:, :, :, :-i]
+                else:
+                    cost_volume_correlation[:, i, :, :] = (left_feature * right_feature).mean(dim=1)
+                    cost_volume_diff[:, :, i, :, :] =  left_feature - right_feature
+
+            # cost volume squeezement
+            cost_volume_concat = self.conv3d(cost_volume_diff).squeeze(dim=1)     # N C D H W -> N D H W
+            # cost_volume = torch.cat((cost_volume_concat, cost_volume_correlation), dim=1)   # N 2D H W
+            cost_volume = cost_volume_concat + cost_volume_correlation      # N D H W
+
+
         else:
             raise NotImplementedError
 
-        cost_volume = cost_volume.contiguous()  # [B, C, D, H, W] or [B, D, H, W]
+        cost_volume = cost_volume.contiguous()  # [B, C, D, H, W] or [B, D, H, W] or [B, 2D, H, W]
 
         return cost_volume
 

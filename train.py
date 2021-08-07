@@ -85,7 +85,8 @@ parser.add_argument('--evaluate_only', action='store_true', help='Evaluate pretr
 parser.add_argument('--no_validate', action='store_true', help='No validation')
 parser.add_argument('--strict', action='store_true', help='Strict mode when loading checkpoints')
 parser.add_argument('--val_metric', default='epe', help='Validation metric to select best model')
-
+parser.add_argument('--attention', action='store_true')
+parser.add_argument('--combinecost', action='store_true')
 args = parser.parse_args()
 logger = utils.get_logger()
 
@@ -147,7 +148,7 @@ def main():
                        no_feature_mdconv=args.no_feature_mdconv,
                        feature_pyramid=args.feature_pyramid,
                        feature_pyramid_network=args.feature_pyramid_network,
-                       feature_similarity=args.feature_similarity,
+                       feature_similarity='combind_volume' if args.combinecost else 'correlation',
                        aggregation_type=args.aggregation_type,
                        num_scales=args.num_scales,
                        num_fusions=args.num_fusions,
@@ -156,7 +157,8 @@ def main():
                        no_intermediate_supervision=args.no_intermediate_supervision,
                        refinement_type=args.refinement_type,
                        mdconv_dilation=args.mdconv_dilation,
-                       deformable_groups=args.deformable_groups).to(device)
+                       deformable_groups=args.deformable_groups,
+                       attention=args.attention).to(device)
 
     logger.info('%s' % aanet)
 

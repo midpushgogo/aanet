@@ -9,7 +9,7 @@ from nets.aggregation import (StereoNetAggregation, GCNetAggregation, PSMNetBasi
                               PSMNetHGAggregation, AdaptiveAggregation)
 from nets.estimation import DisparityEstimation
 from nets.refinement import StereoNetRefinement, StereoDRNetRefinement, HourglassRefinement
-
+from  torchvision import utils as vutils
 
 class AANet(nn.Module):
     def __init__(self, max_disp,
@@ -27,7 +27,8 @@ class AANet(nn.Module):
                  refinement_type='stereodrnet',
                  no_intermediate_supervision=False,
                  num_stage_blocks=1,
-                 num_deform_blocks=3):
+                 num_deform_blocks=3,
+                 attention=False):
         super(AANet, self).__init__()
 
         self.refinement_type = refinement_type
@@ -37,7 +38,7 @@ class AANet(nn.Module):
         self.num_downsample = num_downsample
         self.aggregation_type = aggregation_type
         self.num_scales = num_scales
-
+        self.attention=attention
         # Feature extractor
         if feature_type == 'stereonet':
             self.max_disp = max_disp // (2 ** num_downsample)
@@ -70,12 +71,11 @@ class AANet(nn.Module):
 
         # Cost volume construction
         if feature_type == 'aanet' or feature_pyramid or feature_pyramid_network:
-            cost_volume_module = CostVolumePyramid
+            self.cost_volume = CostVolumePyramid(self.max_disp,
+                                                  feature_similarity=feature_similarity)
         else:
-            cost_volume_module = CostVolume
-        self.cost_volume = cost_volume_module(self.max_disp,
-                                              feature_similarity=feature_similarity)
-
+            self.cost_volume = CostVolume(self.max_disp,
+                                                  feature_similarity=feature_similarity)
         # Cost aggregation
         max_disp = self.max_disp
         if feature_similarity == 'concat':
@@ -118,9 +118,9 @@ class AANet(nn.Module):
                 refine_module_list = nn.ModuleList()
                 for i in range(num_downsample):
                     if self.refinement_type == 'stereonet':
-                        refine_module_list.append(StereoNetRefinement())
+                        refine_module_list.append(StereoNetRefinement(self.attention))
                     elif self.refinement_type == 'stereodrnet':
-                        refine_module_list.append(StereoDRNetRefinement())
+                        refine_module_list.append(StereoDRNetRefinement(self.attention))
                     elif self.refinement_type == 'hourglass':
                         refine_module_list.append(HourglassRefinement())
                     else:
@@ -203,13 +203,18 @@ class AANet(nn.Module):
 
         return disparity_pyramid
 
-    def forward(self, left_img, right_img):
+    def forward(self, left_img, right_img,idx):
         left_feature = self.feature_extraction(left_img)
         right_feature = self.feature_extraction(right_img)
         cost_volume = self.cost_volume_construction(left_feature, right_feature)
         aggregation = self.aggregation(cost_volume)
         disparity_pyramid = self.disparity_computation(aggregation)
+
         disparity_pyramid += self.disparity_refinement(left_img, right_img,
                                                        disparity_pyramid[-1])
+        if idx:
+            if idx%10==1:
+                vutils.save_image(disparity_pyramid[-1][0], "show/"+str(idx)+'pred2.jpg', normalize=True)
+                vutils.save_image(left_img[0], "show/"+str(idx) + 'left.jpg', normalize=True)
 
         return disparity_pyramid

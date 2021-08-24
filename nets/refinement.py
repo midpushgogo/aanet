@@ -43,7 +43,11 @@ class StereoNetRefinement(nn.Module):
         super(StereoNetRefinement, self).__init__()
 
         # Original StereoNet: left, disp
-        self.conv = conv2d(4, 32)
+        if attention:
+            
+            self.conv = conv2d(10, 32)
+        else:
+            self.conv=conv2d(4,32)
         self.attention=attention
         self.attentionnet = SA_Module(input_nc=10)
         self.dilation_list = [1, 2, 4, 8, 1, 1]
@@ -75,8 +79,8 @@ class StereoNetRefinement(nn.Module):
             error = warped_right - left_img  # [B, C, H, W]
             query = torch.cat((left_img, right_img, error, disp), dim=1)
             attention_map=self.attentionnet(query)
-            concat = torch.cat((disp, left_img), dim=1)  # [B, 4, H, W]
-            out = self.conv(concat*attention_map)
+          #  concat = torch.cat((disp, left_img), dim=1)  # [B, 4, H, W]
+            out = self.conv(query*attention_map)
         else:
             concat = torch.cat((disp, left_img), dim=1)  # [B, 4, H, W]
             out = self.conv(concat)

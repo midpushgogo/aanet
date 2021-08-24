@@ -148,7 +148,7 @@ def main():
                        no_feature_mdconv=args.no_feature_mdconv,
                        feature_pyramid=args.feature_pyramid,
                        feature_pyramid_network=args.feature_pyramid_network,
-                       feature_similarity='combind_volume' if args.combinecost else 'correlation',
+                       feature_similarity='combind_volume' if args.combinecost else args.feature_similarity,
                        aggregation_type=args.aggregation_type,
                        num_scales=args.num_scales,
                        num_fusions=args.num_fusions,

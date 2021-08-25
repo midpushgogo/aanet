@@ -98,7 +98,10 @@ class StereoDRNetRefinement(nn.Module):
         super(StereoDRNetRefinement, self).__init__()
 
         # Left and warped error
-        in_channels = 6
+        if attention:
+            in_channels = 10
+        else :
+            in_channels=6
         self.attention=attention
         self.conv1 = conv2d(in_channels, 16)
         self.conv2 = conv2d(1, 16)  # on low disparity
@@ -130,8 +133,8 @@ class StereoDRNetRefinement(nn.Module):
         if self.attention:
             query = torch.cat((left_img, right_img, error, disp), dim=1)
             attention_map=self.attentionnet(query)
-            concat = torch.cat((error, left_img), dim=1)  # [B, 4, H, W]
-            conv1 = self.conv1(concat*attention_map)
+           # concat = torch.cat((error, left_img), dim=1)  # [B, 4, H, W]
+            conv1 = self.conv1(query*attention_map)
         else:
             concat = torch.cat((error, left_img), dim=1)  # [B, 4, H, W]
             conv1 = self.conv1(concat)

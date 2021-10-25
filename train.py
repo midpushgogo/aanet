@@ -87,6 +87,8 @@ parser.add_argument('--strict', action='store_true', help='Strict mode when load
 parser.add_argument('--val_metric', default='epe', help='Validation metric to select best model')
 parser.add_argument('--attention', action='store_true')
 parser.add_argument('--combinecost', action='store_true')
+parser.add_argument('--show', action='store_true')
+
 args = parser.parse_args()
 logger = utils.get_logger()
 
@@ -227,7 +229,7 @@ def main():
     logger.info('=> Start training...')
 
     if args.evaluate_only:
-        assert args.val_batch_size == 1
+        args.val_batch_size == 1
         train_model.validate(val_loader)
     else:
         for _ in range(start_epoch, args.max_epoch):

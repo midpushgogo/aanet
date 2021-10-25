@@ -2,12 +2,15 @@ import torch
 import time
 from torch.utils.tensorboard import SummaryWriter
 import torch.nn.functional as F
+import torch.nn as nn
 import os
-
+from nets.warp import disp_warp
 from utils import utils
 from utils.visualization import disp_error_img, save_images
 from metric import d1_metric, thres_metric
 
+mean=torch.tensor([0.485, 0.456, 0.406]).reshape((1,3,1,1))
+std=torch.tensor([0.229, 0.224, 0.225]).reshape((1,3,1,1))
 
 class Model(object):
     def __init__(self, args, logger, optimizer, aanet, device, start_iter=0, start_epoch=0,
@@ -64,9 +67,10 @@ class Model(object):
 
             if not mask.any():
                 continue
-
-            pred_disp_pyramid = self.aanet(left, right,None)  # list of H/12, H/6, H/3, H/2, H
-
+            if self.args.refinement_type=='rescostnet':
+                pred_disp_pyramid, occ_pyramid= self.aanet(left, right,None)  # list of H/12, H/6, H/3, H/2, H
+            else:
+                pred_disp_pyramid= self.aanet(left, right, None)
             if args.highest_loss_only:
                 pred_disp_pyramid = [pred_disp_pyramid[-1]]  # only the last highest resolution output
 
@@ -88,6 +92,17 @@ class Model(object):
                 raise NotImplementedError
 
             assert len(pyramid_weight) == len(pred_disp_pyramid)
+
+            if self.args.refinement_type == 'rescostnet':
+                left_scale=left*std.to(left.device)+mean.to(left.device)
+                right_scale = right * std.to(right.device) + mean.to(right.device)
+    #            print(right_scale.shape,gt_disp.shape)
+                left_warped = disp_warp(right_scale,torch.unsqueeze( gt_disp,dim=1))[0]
+                error = torch.abs(left_scale - left_warped)
+                mask_bool = (error[:, 0, ::] < 0.1) & (error[:, 1, ::] < 0.1) & (error[:, 2, ::] < 0.1) & mask
+                t = torch.ones(mask_bool.shape).to(left.device).float()
+                occmask = t * mask_bool
+
             for k in range(len(pred_disp_pyramid)):
                 pred_disp = pred_disp_pyramid[k]
                 weight = pyramid_weight[k]
@@ -98,11 +113,19 @@ class Model(object):
                                               mode='bilinear', align_corners=False) * (gt_disp.size(-1) / pred_disp.size(-1))
                     pred_disp = pred_disp.squeeze(1)  # [B, H, W]
 
-                curr_loss = F.smooth_l1_loss(pred_disp[mask], gt_disp[mask],
-                                             reduction='mean')
-                disp_loss += weight * curr_loss
-                pyramid_loss.append(curr_loss)
+                if self.args.refinement_type=='rescostnet' and k!=0:
+                    occ=occ_pyramid[k-1]
+                    occ = F.interpolate(occ, size=(gt_disp.size(-2), gt_disp.size(-1)),
+                                              mode='bilinear', align_corners=False)
 
+
+                curr_loss = F.smooth_l1_loss(pred_disp[mask], gt_disp[mask],
+                                                 reduction='mean')
+                disp_loss += weight * curr_loss
+                if self.args.refinement_type=='rescostnet' and k!=0:
+                    occ_loss=F.binary_cross_entropy(occ,torch.unsqueeze(occmask,dim=1))
+                    disp_loss+=occ_loss*5
+                pyramid_loss.append(curr_loss)
                 # Pseudo gt loss
                 if args.load_pseudo_gt:
                     pseudo_curr_loss = F.smooth_l1_loss(pred_disp[pseudo_mask], pseudo_gt_disp[pseudo_mask],
@@ -112,7 +135,7 @@ class Model(object):
                     pseudo_pyramid_loss.append(pseudo_curr_loss)
 
             total_loss = disp_loss + pseudo_disp_loss
-
+            epe = F.l1_loss(gt_disp[mask], pred_disp[mask], reduction='mean')
             self.optimizer.zero_grad()
             total_loss.backward()
             self.optimizer.step()
@@ -123,9 +146,9 @@ class Model(object):
                 this_cycle = time.time() - last_print_time
                 last_print_time += this_cycle
 
-                logger.info('Epoch: [%3d/%3d] [%5d/%5d] time: %4.2fs disp_loss: %.3f' %
+                logger.info('Epoch: [%3d/%3d] [%5d/%5d] time: %4.2fs disp_loss: %.3f epe: %.3f' %
                             (self.epoch + 1, args.max_epoch, i + 1, steps_per_epoch, this_cycle,
-                             disp_loss.item()))
+                             disp_loss.item(),epe.item()))
 
             if self.num_iter % args.summary_freq == 0:
                 img_summary = dict()
@@ -144,14 +167,15 @@ class Model(object):
                     img_summary[save_name] = save_value
 
                 pred_disp = pred_disp_pyramid[-1]
-
+                pred_occ=occ_pyramid[-1]
                 if pred_disp.size(-1) != gt_disp.size(-1):
                     pred_disp = pred_disp.unsqueeze(1)  # [B, 1, H, W]
                     pred_disp = F.interpolate(pred_disp, size=(gt_disp.size(-2), gt_disp.size(-1)),
                                               mode='bilinear', align_corners=False) * (gt_disp.size(-1) / pred_disp.size(-1))
                     pred_disp = pred_disp.squeeze(1)  # [B, H, W]
                 img_summary['disp_error'] = disp_error_img(pred_disp, gt_disp)
-
+                img_summary['occ']=pred_occ
+                img_summary['occ_gt']=occmask
                 save_images(self.train_writer, 'train', img_summary, self.num_iter)
 
                 epe = F.l1_loss(gt_disp[mask], pred_disp[mask], reduction='mean')
@@ -247,8 +271,11 @@ class Model(object):
             num_imgs += gt_disp.size(0)
 
             with torch.no_grad():
-                pred_disp = self.aanet(left, right,None)[-1]  # [B, H, W]
-
+                if args.show:
+                    pred_disp,_ = self.aanet(left, right,i)
+                else:
+                    pred_disp,_ = self.aanet(left, right,None)  # [B, H, W]
+                pred_disp=pred_disp[-1]
             if pred_disp.size(-1) < gt_disp.size(-1):
                 pred_disp = pred_disp.unsqueeze(1)  # [B, 1, H, W]
                 pred_disp = F.interpolate(pred_disp, (gt_disp.size(-2), gt_disp.size(-1)),

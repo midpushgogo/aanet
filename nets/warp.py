@@ -48,7 +48,7 @@ def disp_warp(img, disp, padding_mode='border'):
         warped_img: [B, 3, H, W]
         valid_mask: [B, 3, H, W]
     """
-    assert disp.min() >= 0
+#    assert disp.min() >= 0
 
     grid = meshgrid(img)  # [B, 2, H, W] in image scale
     # Note that -disp here

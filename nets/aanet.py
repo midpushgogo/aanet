@@ -8,7 +8,7 @@ from nets.cost import CostVolume, CostVolumePyramid
 from nets.aggregation import (StereoNetAggregation, GCNetAggregation, PSMNetBasicAggregation,
                               PSMNetHGAggregation, AdaptiveAggregation)
 from nets.estimation import DisparityEstimation
-from nets.refinement import StereoNetRefinement, StereoDRNetRefinement, HourglassRefinement
+from nets.refinement import StereoNetRefinement, StereoDRNetRefinement, HourglassRefinement, RescostRefinement
 from  torchvision import utils as vutils
 
 class AANet(nn.Module):
@@ -114,7 +114,7 @@ class AANet(nn.Module):
 
         # Refinement
         if self.refinement_type is not None and self.refinement_type != 'None':
-            if self.refinement_type in ['stereonet', 'stereodrnet', 'hourglass']:
+            if self.refinement_type in ['stereonet', 'stereodrnet', 'hourglass',"rescostnet"]:
                 refine_module_list = nn.ModuleList()
                 for i in range(num_downsample):
                     if self.refinement_type == 'stereonet':
@@ -123,6 +123,8 @@ class AANet(nn.Module):
                         refine_module_list.append(StereoDRNetRefinement(self.attention))
                     elif self.refinement_type == 'hourglass':
                         refine_module_list.append(HourglassRefinement())
+                    elif self.refinement_type == 'rescostnet':
+                        refine_module_list.append(RescostRefinement())
                     else:
                         raise NotImplementedError
 
@@ -159,7 +161,7 @@ class AANet(nn.Module):
 
         return disparity_pyramid
 
-    def disparity_refinement(self, left_img, right_img, disparity):
+    def disparity_refinement(self, left_img, right_img, disparity,idx=None):
         disparity_pyramid = []
         if self.refinement_type is not None and self.refinement_type != 'None':
             if self.refinement_type == 'stereonet':
@@ -179,6 +181,28 @@ class AANet(nn.Module):
                     inputs = (disparity, curr_left_img, curr_right_img)
                     disparity = self.refinement[i](*inputs)
                     disparity_pyramid.append(disparity)  # [H/2, H]
+
+
+            elif self.refinement_type == 'rescostnet':
+                occmask_pyramid=[]
+                for i in range(self.num_downsample):
+                    # Hierarchical refinement
+                    scale_factor = 1. / pow(2, self.num_downsample - i - 1)
+                    if scale_factor == 1.0:
+                        curr_left_img = left_img
+                        curr_right_img = right_img
+                    else:
+                        curr_left_img = F.interpolate(left_img,
+                                                      scale_factor=scale_factor,
+                                                      mode='bilinear', align_corners=False)
+                        curr_right_img = F.interpolate(right_img,
+                                                       scale_factor=scale_factor,
+                                                       mode='bilinear', align_corners=False)
+                    inputs = (disparity, curr_left_img, curr_right_img,idx)
+                    disparity ,occmask= self.refinement[i](*inputs)
+                    disparity_pyramid.append(disparity)  # [H/2, H]
+                    occmask_pyramid.append(occmask)
+
 
             elif self.refinement_type in ['stereodrnet', 'hourglass']:
                 for i in range(self.num_downsample):
@@ -200,8 +224,10 @@ class AANet(nn.Module):
 
             else:
                 raise NotImplementedError
-
-        return disparity_pyramid
+        if self.refinement_type =='rescostnet':
+            return disparity_pyramid, occmask_pyramid
+        else:
+            return disparity_pyramid
 
     def forward(self, left_img, right_img,idx):
         left_feature = self.feature_extraction(left_img)
@@ -209,12 +235,17 @@ class AANet(nn.Module):
         cost_volume = self.cost_volume_construction(left_feature, right_feature)
         aggregation = self.aggregation(cost_volume)
         disparity_pyramid = self.disparity_computation(aggregation)
+        
+        if self.refinement_type=='rescostnet':
+            if idx:
+                disparity_res ,occ_pyramid= self.disparity_refinement(left_img, right_img,disparity_pyramid[-1],idx)
+            else:
+                disparity_res ,occ_pyramid= self.disparity_refinement(left_img, right_img,disparity_pyramid[-1])
+            disparity_pyramid+=disparity_res
+        else:
+            disparity_pyramid+= self.disparity_refinement(left_img, right_img,disparity_pyramid[-1])
 
-        disparity_pyramid += self.disparity_refinement(left_img, right_img,
-                                                       disparity_pyramid[-1])
-        if idx:
-            if idx%10==1:
-                vutils.save_image(disparity_pyramid[-1][0], "show/"+str(idx)+'pred2.jpg', normalize=True)
-                vutils.save_image(left_img[0], "show/"+str(idx) + 'left.jpg', normalize=True)
-
-        return disparity_pyramid
+        if self.refinement_type=='rescostnet':
+            return disparity_pyramid,occ_pyramid
+        else:
+            return disparity_pyramid

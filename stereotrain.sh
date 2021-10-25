@@ -4,7 +4,7 @@
 CUDA_VISIBLE_DEVICES=0,1 python train.py \
 --mode test  \
 --data_dir data \
---checkpoint_dir checkpoints/stereo_sceneflowv2 \
+--checkpoint_dir checkpoints/stereo_sceneflowconv \
 --batch_size 14 \
 --learning_rate 4e-4 \
 --val_batch_size 12 \
@@ -18,7 +18,7 @@ CUDA_VISIBLE_DEVICES=0,1 python train.py \
 --aggregation_type stereonet  \
 --milestones 20,30,40,50,60 \
 --max_epoch 10  \
---print_freq 1  \
---resume \
---show \
---evaluate_only
+--print_freq 1  
+#--resume \
+#--show \
+#--evaluate_only

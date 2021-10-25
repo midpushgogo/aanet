@@ -304,6 +304,7 @@ class RescostRefinement(nn.Module):
         self.mode=mode
         self.attention=SA_Module(input_nc=8)
         self.disp_range=disp_range
+        self.conv=conv2d(3,32)
         self.occlusion_pred=Occlution_pred()
         self.occlusion_residual = Occlusion_residual(disp_range+1, deform=True)
         self.error_residual = Aggregation2D(disp_range)
@@ -317,20 +318,21 @@ class RescostRefinement(nn.Module):
         scale_factor = left_img.size(-1) / low_disp.size(-1)
         disp = F.interpolate(low_disp, size=left_img.size()[-2:], mode='bilinear', align_corners=False)
         disp = disp * scale_factor  # scale correspondingly
-
-        res_volume = res_dynamic_cost_volume(self.disp_range, left_img, right_img, disp, self.mode)
+        left_feature=self.conv(left_img)
+        right_feature=self.conv(right_img)
+        res_volume = res_dynamic_cost_volume(self.disp_range, left_feature, right_feature, disp, self.mode)
 
         warped_right = disp_warp(right_img, disp)[0]  # [B, C, H, W]
         error_map = torch.abs(warped_right - left_img)  # [B, C, H, W]
-        occlusion_input = torch.cat((error_map, right_img, disp), dim=1).detach()
+        occlusion_input = torch.cat((error_map, right_img, disp), dim=1)
         occlusion_mask = self.occlusion_pred(occlusion_input)
 
-        occluded_feature = torch.cat((res_volume, occlusion_mask.detach()), dim=1)
-        occ_attention=self.attention(torch.cat((error_map, left_img, disp, occlusion_mask), dim=1).detach())
-        occlusion_residual = self.occlusion_residual(occluded_feature) * occ_attention
+        occluded_feature = torch.cat((res_volume, occlusion_mask), dim=1)
+        occ_attention=self.attention(torch.cat((error_map, left_img, disp, occlusion_mask), dim=1))
+        occlusion_residual = self.occlusion_residual(occluded_feature*occ_attention)
 
         error_feature=res_volume
-        error_residual = self.error_residual( error_feature,None)*occlusion_mask
+        error_residual = self.error_residual( error_feature,None)
 
 
 

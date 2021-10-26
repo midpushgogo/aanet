@@ -8,7 +8,7 @@ from nets.warp import disp_warp
 from utils import utils
 from utils.visualization import disp_error_img, save_images
 from metric import d1_metric, thres_metric
-
+from torchvision import utils as vutils
 mean=torch.tensor([0.485, 0.456, 0.406]).reshape((1,3,1,1))
 std=torch.tensor([0.229, 0.224, 0.225]).reshape((1,3,1,1))
 
@@ -281,8 +281,10 @@ class Model(object):
                 pred_disp = F.interpolate(pred_disp, (gt_disp.size(-2), gt_disp.size(-1)),
                                           mode='bilinear', align_corners=False) * (gt_disp.size(-1) / pred_disp.size(-1))
                 pred_disp = pred_disp.squeeze(1)  # [B, H, W]
-
+            if args.show:
+                vutils.save_image(gt_disp[0], "show/"+str(i)+"_"+'gt_disp.jpg', normalize=True)
             epe = F.l1_loss(gt_disp[mask], pred_disp[mask], reduction='mean')
+         
             d1 = d1_metric(pred_disp, gt_disp, mask)
             thres1 = thres_metric(pred_disp, gt_disp, mask, 1.0)
             thres2 = thres_metric(pred_disp, gt_disp, mask, 2.0)

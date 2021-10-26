@@ -306,8 +306,8 @@ class RescostRefinement(nn.Module):
         self.disp_range=disp_range
         self.conv=conv2d(3,32)
         self.occlusion_pred=Occlution_pred()
-        self.occlusion_residual = Occlusion_residual(disp_range+1, deform=True)
-        self.error_residual = Aggregation2D(disp_range)
+        self.occlusion_residual = Occlusion_residual(disp_range+4, deform=True)
+    #    self.error_residual = Aggregation2D(disp_range)
     def forward(self, low_disp, left_img, right_img,idx=None):
         """
         left_img   B, C, H ,W
@@ -318,6 +318,8 @@ class RescostRefinement(nn.Module):
         scale_factor = left_img.size(-1) / low_disp.size(-1)
         disp = F.interpolate(low_disp, size=left_img.size()[-2:], mode='bilinear', align_corners=False)
         disp = disp * scale_factor  # scale correspondingly
+        if idx:
+            odisp=disp
         left_feature=self.conv(left_img)
         right_feature=self.conv(right_img)
         res_volume = res_dynamic_cost_volume(self.disp_range, left_feature, right_feature, disp, self.mode)
@@ -327,24 +329,24 @@ class RescostRefinement(nn.Module):
         occlusion_input = torch.cat((error_map, right_img, disp), dim=1)
         occlusion_mask = self.occlusion_pred(occlusion_input)
 
-        occluded_feature = torch.cat((res_volume, occlusion_mask), dim=1)
+        occluded_feature = torch.cat((res_volume, occlusion_mask,error_map), dim=1)
         occ_attention=self.attention(torch.cat((error_map, left_img, disp, occlusion_mask), dim=1))
         occlusion_residual = self.occlusion_residual(occluded_feature*occ_attention)
 
-        error_feature=res_volume
-        error_residual = self.error_residual( error_feature,None)
+     #   error_feature=res_volume
+     #   error_residual = self.error_residual( error_feature,None)
 
 
-
-        disp = F.relu(disp + error_residual+occlusion_residual, inplace=True)  # [B, 1, H, W]
+        disp = F.relu(disp + occlusion_residual, inplace=True)  # [B, 1, H, W]
         disp = disp.squeeze(1)  # [B, H, W]
         
+    
         if idx:
-            if idx%10==1:
-                vutils.save_image(occ_attention[0], "show/"+str(idx)+"_"+str(disp.size()[-1])+'occ_att.jpg', normalize=True)
-                vutils.save_image(error_residual[0], "show/"+str(idx)+"_"+str(disp.size()[-1])+'error_r.jpg', normalize=True)
-                
-
+            vutils.save_image(occ_attention[0], "show/"+str(idx)+"_"+str(disp.size()[-1])+'occ_att.jpg', normalize=True)
+            vutils.save_image(error_residual[0]+odisp[0], "show/"+str(idx)+"_"+str(disp.size()[-1])+'err+d.jpg', normalize=True)
+            vutils.save_image(occlusion_residual[0], "show/"+str(idx)+"_"+str(disp.size()[-1])+'occ_res.jpg', normalize=True)
+            vutils.save_image(disp[0], "show/"+str(idx)+"_"+str(disp.size()[-1])+'disp.jpg', normalize=True)
+    
         return disp,occlusion_mask
 
 class StereoDRNetRefinement(nn.Module):

@@ -139,7 +139,8 @@ def main():
                                         dataset_name=args.dataset_name,
                                         mode=args.mode,
                                         transform=val_transform)
-
+    if  args.evaluate_only or args.show:
+        args.val_batch_size=1
     val_loader = DataLoader(dataset=val_data, batch_size=args.val_batch_size, shuffle=False,
                             num_workers=args.num_workers, pin_memory=True, drop_last=False)
 

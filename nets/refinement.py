@@ -102,6 +102,9 @@ class Occlusion_residual(nn.Module):
                 nn.Conv2d(in_channel, feature_channel, kernel_size=3, stride=1, padding=1, bias=False),
                 nn.BatchNorm2d(feature_channel),
                 nn.ReLU(True),
+                nn.ConvTranspose2d(feature_channel, feature_channel, kernel_size=4, stride=2, padding=1, bias=False),
+                nn.BatchNorm2d(feature_channel),
+                nn.ReLU(True),
                 ModulatedDeformConvPack(feature_channel, feature_channel*2, kernel_size=(3, 3), stride=1,
                                         padding=1, deformable_groups=2),
                 nn.BatchNorm2d(feature_channel*2),
@@ -304,24 +307,26 @@ class RescostRefinement(nn.Module):
         self.mode=mode
         self.attention=SA_Module(input_nc=8)
         self.disp_range=disp_range
-        self.conv=conv2d(3,32)
+        #self.conv=conv2d(3,32)
+        self.conv=nn.ConvTranspose2d(32, 16, kernel_size=4, stride=2, padding=1, bias=False)
+        
         self.occlusion_pred=Occlution_pred()
         self.occlusion_residual = Occlusion_residual(disp_range+4, deform=True)
     #    self.error_residual = Aggregation2D(disp_range)
-    def forward(self, low_disp, left_img, right_img,idx=None):
+    def forward(self, disp, left_img, right_img,idx=None,left_feature=None,right_feature=None):
         """
         left_img   B, C, H ,W
         low_disp   B, H, W or B. 1/2H, 1/2W
         """
-        assert low_disp.dim() == 3
-        low_disp = low_disp.unsqueeze(1)  # [B, 1, H, W]
-        scale_factor = left_img.size(-1) / low_disp.size(-1)
-        disp = F.interpolate(low_disp, size=left_img.size()[-2:], mode='bilinear', align_corners=False)
-        disp = disp * scale_factor  # scale correspondingly
-        if idx:
-            odisp=disp
-        left_feature=self.conv(left_img)
-        right_feature=self.conv(right_img)
+        assert disp.dim() == 3
+        disp = disp.unsqueeze(1)  # [B, 1, H, W]
+
+        # left_feature=self.conv(left_img)
+        # right_feature=self.conv(right_img)
+        if left_feature.size()[-1]!=disp.size()[-1]:
+            left_feature=self.conv(left_feature)
+            right_feature=self.conv(right_feature)
+       # print(left_feature.shape,disp.shape)
         res_volume = res_dynamic_cost_volume(self.disp_range, left_feature, right_feature, disp, self.mode)
 
         warped_right = disp_warp(right_img, disp)[0]  # [B, C, H, W]
@@ -335,7 +340,11 @@ class RescostRefinement(nn.Module):
 
      #   error_feature=res_volume
      #   error_residual = self.error_residual( error_feature,None)
-
+        
+     #   print(disp.shape,occlusion_residual.shape)
+        scale_factor = occlusion_residual.size(-1) / disp.size(-1)
+        disp = F.interpolate(disp, size=occlusion_residual.size()[-2:], mode='bilinear', align_corners=False)
+        disp = disp * scale_factor  # scale correspondingly
 
         disp = F.relu(disp + occlusion_residual, inplace=True)  # [B, 1, H, W]
         disp = disp.squeeze(1)  # [B, H, W]
@@ -343,7 +352,7 @@ class RescostRefinement(nn.Module):
     
         if idx:
             vutils.save_image(occ_attention[0], "show/"+str(idx)+"_"+str(disp.size()[-1])+'occ_att.jpg', normalize=True)
-            vutils.save_image(error_residual[0]+odisp[0], "show/"+str(idx)+"_"+str(disp.size()[-1])+'err+d.jpg', normalize=True)
+          #  vutils.save_image(error_residual[0]+odisp[0], "show/"+str(idx)+"_"+str(disp.size()[-1])+'err+d.jpg', normalize=True)
             vutils.save_image(occlusion_residual[0], "show/"+str(idx)+"_"+str(disp.size()[-1])+'occ_res.jpg', normalize=True)
             vutils.save_image(disp[0], "show/"+str(idx)+"_"+str(disp.size()[-1])+'disp.jpg', normalize=True)
     

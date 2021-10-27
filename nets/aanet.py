@@ -161,7 +161,7 @@ class AANet(nn.Module):
 
         return disparity_pyramid
 
-    def disparity_refinement(self, left_img, right_img, disparity,idx=None):
+    def disparity_refinement(self, left_img, right_img, disparity,idx=None,left_feature=None,right_feature=None):
         disparity_pyramid = []
         if self.refinement_type is not None and self.refinement_type != 'None':
             if self.refinement_type == 'stereonet':
@@ -187,7 +187,7 @@ class AANet(nn.Module):
                 occmask_pyramid=[]
                 for i in range(self.num_downsample):
                     # Hierarchical refinement
-                    scale_factor = 1. / pow(2, self.num_downsample - i - 1)
+                    scale_factor = 1. / pow(2, self.num_downsample - i )
                     if scale_factor == 1.0:
                         curr_left_img = left_img
                         curr_right_img = right_img
@@ -198,7 +198,7 @@ class AANet(nn.Module):
                         curr_right_img = F.interpolate(right_img,
                                                        scale_factor=scale_factor,
                                                        mode='bilinear', align_corners=False)
-                    inputs = (disparity, curr_left_img, curr_right_img,idx)
+                    inputs = (disparity, curr_left_img, curr_right_img,idx,left_feature,right_feature)
                     disparity ,occmask= self.refinement[i](*inputs)
                     disparity_pyramid.append(disparity)  # [H/2, H]
                     occmask_pyramid.append(occmask)
@@ -238,9 +238,9 @@ class AANet(nn.Module):
         
         if self.refinement_type=='rescostnet':
             if idx:
-                disparity_res ,occ_pyramid= self.disparity_refinement(left_img, right_img,disparity_pyramid[-1],idx)
+                disparity_res ,occ_pyramid= self.disparity_refinement(left_img, right_img,disparity_pyramid[-1],idx,left_feature,right_feature)
             else:
-                disparity_res ,occ_pyramid= self.disparity_refinement(left_img, right_img,disparity_pyramid[-1])
+                disparity_res ,occ_pyramid= self.disparity_refinement(left_img, right_img,disparity_pyramid[-1],None,left_feature,right_feature)
             disparity_pyramid+=disparity_res
         else:
             disparity_pyramid+= self.disparity_refinement(left_img, right_img,disparity_pyramid[-1])

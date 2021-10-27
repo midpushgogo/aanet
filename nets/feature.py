@@ -109,7 +109,6 @@ class StereoNetFeature(nn.Module):
         out = self.downsample(img)  # [B, 32, H/8, W/8]
         out = self.residual_blocks(out)  # [B, 32, H/8, W/8]
         out = self.final_conv(out)  # [B, 32, H/8, W/8]
-
         return out
 
 

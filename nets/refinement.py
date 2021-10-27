@@ -302,16 +302,25 @@ class Occlution_pred(nn.Module):
 
 
 class RescostRefinement(nn.Module):
-    def __init__(self,disp_range=9,mode="correlation"):
+    def __init__(self,disp_range=12,mode="correlation"):
         super(RescostRefinement, self).__init__()
         self.mode=mode
         self.attention=SA_Module(input_nc=8)
         self.disp_range=disp_range
         #self.conv=conv2d(3,32)
         self.conv=nn.ConvTranspose2d(32, 16, kernel_size=4, stride=2, padding=1, bias=False)
-        
+
         self.occlusion_pred=Occlution_pred()
-        self.occlusion_residual = Occlusion_residual(disp_range+4, deform=True)
+
+        self.dilation_list = [2, 4, 8, 1, 1]
+        self.dilated_blocks = nn.ModuleList()
+        self.dilated_blocks.append(BasicBlock(16, 32, stride=1, dilation=1))
+        for dilation in self.dilation_list:
+            self.dilated_blocks.append(BasicBlock(32, 32, stride=1, dilation=dilation))
+
+        self.dilated_blocks = nn.Sequential(*self.dilated_blocks)
+
+        self.final_conv = nn.Conv2d(32, 1, 3, 1, 1)
     #    self.error_residual = Aggregation2D(disp_range)
     def forward(self, disp, left_img, right_img,idx=None,left_feature=None,right_feature=None):
         """
@@ -336,7 +345,7 @@ class RescostRefinement(nn.Module):
 
         occluded_feature = torch.cat((res_volume, occlusion_mask,error_map), dim=1)
         occ_attention=self.attention(torch.cat((error_map, left_img, disp, occlusion_mask), dim=1))
-        occlusion_residual = self.occlusion_residual(occluded_feature*occ_attention)
+        occlusion_residual = self.dilated_blocks(occluded_feature*occ_attention)
 
      #   error_feature=res_volume
      #   error_residual = self.error_residual( error_feature,None)

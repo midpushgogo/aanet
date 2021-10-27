@@ -271,10 +271,16 @@ class Model(object):
             num_imgs += gt_disp.size(0)
 
             with torch.no_grad():
+
                 if args.show:
-                    pred_disp,_ = self.aanet(left, right,i)
+                    t=i
                 else:
-                    pred_disp,_ = self.aanet(left, right,None)  # [B, H, W]
+                    t=None
+                if self.args.refinement_type == 'rescostnet':
+                    pred_disp,_ = self.aanet(left, right,t)
+                else:
+                    pred_disp,  = self.aanet(left, right, t)
+
                 pred_disp=pred_disp[-1]
             if pred_disp.size(-1) < gt_disp.size(-1):
                 pred_disp = pred_disp.unsqueeze(1)  # [B, 1, H, W]
